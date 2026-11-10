@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # 本地构建 Flutter Web 产物并打包 nginx 镜像（需本机已安装 Flutter + Docker）。
-# 用法：./build.sh [私有源码仓 hongguo-desktop 的路径，默认 ../hongguo-desktop]
+# 用法：./build.sh [私有源码仓 hongguo-desktop 内 Flutter 工程路径，默认 ../hongguo-desktop/apps/flutter]
 #
-# 说明：本脚本只构建并打包，不修改任何源码。web 播放层所需的 hls.js 会预置到产物根目录。
+# 说明：hongguo-desktop 是单体仓，真正的 Flutter 工程在 apps/flutter/ 子目录。
+# 本脚本只构建并打包，不修改任何源码。web 播放层所需的 hls.js 会预置到产物根目录。
 set -euo pipefail
 
-SRC="${1:-../hongguo-desktop}"
+SRC="${1:-../hongguo-desktop/apps/flutter}"
 OUT="build/web"
 
 if [ ! -d "$SRC" ]; then

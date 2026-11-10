@@ -50,11 +50,11 @@ jobs:
           cache: true
 
       - name: Flutter 依赖
-        working-directory: source
+        working-directory: source/apps/flutter
         run: flutter pub get
 
       - name: 构建 Web（release）
-        working-directory: source
+        working-directory: source/apps/flutter
         run: flutter build web --release
 
       - name: 准备 Docker 构建上下文（复制 web 产物 + 预置 hls.js）
@@ -62,7 +62,7 @@ jobs:
           set -euo pipefail
           mkdir -p build
           rm -rf build/web
-          cp -r source/build/web build/web
+          cp -r source/apps/flutter/build/web build/web
           # 预置 hls.js：供 web 播放层按需加载（原生端不受影响）
           curl -fsSL https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js -o build/web/hls.min.js
 

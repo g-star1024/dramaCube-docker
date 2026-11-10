@@ -33,10 +33,13 @@ docker run -d --name dramacube-web -p 8080:80 \
 
 ## 本地构建（开发调试）
 
-需本机已装 Flutter + Docker，且能访问私有源码仓 `hongguo-desktop`：
+需本机已装 Flutter + Docker，且能访问私有源码仓 `hongguo-desktop`。注意它是**单体仓**，真正的 Flutter 工程在 `apps/flutter/` 子目录：
 
 ```bash
-./build.sh /path/to/hongguo-desktop
+# 默认即指向 ../hongguo-desktop/apps/flutter，可直接运行：
+./build.sh
+# 或显式传 Flutter 工程路径：
+./build.sh /path/to/hongguo-desktop/apps/flutter
 # 构建后运行：docker run -p 8080:80 dramacube-web:local
 ```
 
@@ -80,6 +83,8 @@ Web 端的 HLS/视频播放使用浏览器原生 `<video>` + [hls.js](https://gi
 
 若 CI 在 `flutter build web` 步骤失败，通常是上述源码侧 Web 兼容未就绪——属于 `hongguo-desktop` 的 task，
 在本仓之外解决即可，本仓打包逻辑无需改动。
+
+> 源码侧具体要改什么，见 [docs/WEB_COMPAT_PLAN.md](docs/WEB_COMPAT_PLAN.md)（播放层抽象、hls.js 接线、桌面子系统在 web 上禁用的分阶段清单）。
 
 ---
 
