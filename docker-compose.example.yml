@@ -1,0 +1,11 @@
+# 剧立方 DramaCube — Flutter Web 部署示例
+# 用法：docker compose -f docker-compose.example.yml up -d
+# 浏览器访问 http://<本机或NAS IP>:8080
+services:
+  dramacube-web:
+    image: ghcr.io/g-star1024/dramacube-docker:latest
+    container_name: dramacube-web
+    ports:
+      - "8080:80"
+    restart: unless-stopped
+    # 如需自定义域名 / HTTPS，可在本服务前加一层反代（Nginx Proxy Manager / Caddy）

@@ -1,0 +1,8 @@
+# 排除不必要的构建上下文，保持 docker build 轻量
+source/
+.git
+.github
+*.md
+.dockerignore
+docker-compose.example.yml
+build.sh

@@ -1,0 +1,3 @@
+# 本地构建产物不入库（由 CI / build.sh 生成）
+build/
+.DS_Store
