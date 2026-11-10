@@ -1,6 +1,6 @@
 # 剧立方 DramaCube — Flutter Web 部署（路线 B）
 
-> 轻量 Web 版：原生浏览器体验，nginx 静态托管 Flutter Web 产物，镜像约 100MB。
+> 完整 Web 应用：原生浏览器体验，nginx 静态托管 Flutter Web 产物，镜像实测 138MB。
 > 替代已废弃的路线 A（noVNC 桌面镜像，见 [DramaCube-releases](https://github.com/g-star1024/DramaCube-releases)）。
 
 本仓库**只是一个部署壳**：不含任何应用源码，仅负责把 Flutter Web 构建产物用 nginx 托管成镜像。
@@ -29,13 +29,39 @@ docker run -d --name dramacube-web -p 8080:80 \
 浏览器打开 **http://localhost:8080**（NAS 部署把 `localhost` 换成 NAS IP，端口自定）。
 或用 Compose：`docker compose -f docker-compose.example.yml up -d`。
 
-**功能范围（轻量 Web 版）**：粘贴 m3u8/mp4 地址直接播放；配置网关容器地址后可浏览/搜索视频源。
-NAS 本地资源库、磁力下载、本地备份等桌面能力不在 Web 版范围内。
-浏览器不能监听端口，本地网关不启动，需在右上角「网关设置」填入网关容器地址
-（网关已带 `Access-Control-Allow-Origin: *`）；留空也能用「直接播放」。
+**功能范围（Q1 轻量版 = 浏览远程 + 浏览器内核播放）**：完整应用壳，共 7 个页面 ——
 
-**离线 / 内网可用**：构建带 `--no-web-resources-cdn`，canvaskit 与字体走产物内本地资源，
-不依赖 gstatic CDN；`hls.min.js` 也预置在产物内，无需外网即可播 HLS。
+| 页面 | 内容 |
+|------|------|
+| 发现 | Hero 横幅、4 个快捷入口、继续观看、推荐海报墙 |
+| 片库 | 站点切换 / 分类 / 搜索 / 分页 / 海报墙 |
+| 直播 | 频道列表 + 自定义直播流（网关 `/api/live/*` 目前是占位实现，前端已做宽容接入） |
+| 搜索 | 演示片库 + 已连接网关最多 6 个站点，含最近搜索词 |
+| 收藏 | 本地收藏，海报墙上直接点心形增删 |
+| 历史 | 最近播放（保留片名 / 分集 / 播放地址，一键继续观看） |
+| 设置 | 网关地址（保存 + 测试连接）、订阅导入、演示模式开关、清除本地数据 |
+
+另有**影片详情页**（海报 / 简介 / 选集 / 同类推荐 / 收藏 / 复制地址）与**播放页**
+（分集 / 倍速 / 全屏 / 收藏 / 历史记录）。收藏、历史、搜索词与网关地址存在浏览器
+`localStorage`，无需登录、无后端。NAS 本地资源库、磁力下载、本地备份等桌面能力不在范围内。
+
+**开箱即有内容**：未配网关时展示内置演示片库（纯本地静态数据 + 本地渐变封面，不依赖外链图片；
+播放地址是公开测试流，真正播放需外网；设置页可一键关闭）。配置网关容器地址后自动切换为真实站点内容，
+网关已带 `Access-Control-Allow-Origin: *`。Web 版自身不启动本地网关（浏览器不能监听端口）。
+
+**离线 / 内网**：构建带 `--no-web-resources-cdn`，canvaskit 走产物内本地资源（`/canvaskit/...`），
+`hls.min.js` 也预置在产物内，无需外网即可渲染页面并播 HLS。
+**已知项**：Flutter Web 引擎渲染中文时仍会尝试从 `fonts.gstatic.com` 下载 Roboto / Noto Sans SC
+回退字体（引擎 `fontFallbackBaseUrl` 默认值），纯内网下该请求失败会在控制台产生警告，
+但文字回退到系统字体、功能不受影响。演示片库里的公开测试流本身需要外网才能播放。
+
+### 界面预览（真实浏览器渲染）
+
+| 桌面首页 | 片库 | 详情页 | 手机 390px | 平板 820px |
+|---|---|---|---|---|
+| ![首页](docs/web-render.png) | ![片库](docs/web-catalog.png) | ![详情](docs/web-detail.png) | ![手机](docs/web-mobile.png) | ![平板](docs/web-tablet.png) |
+
+宽屏（≥900px）用左侧导航栏，窄屏用底部导航栏；四向统一 24px 内边距。播放页截图见 [docs/web-player.png](docs/web-player.png)。
 
 ---
 
@@ -86,7 +112,9 @@ Web 端的 HLS/视频播放使用浏览器原生 `<video>` + [hls.js](https://gi
 本仓已把 `hls.min.js` 预置到 web 产物根目录（`/hls.min.js`），供 Web 播放层按需加载。
 
 播放层接线在源码仓 `hongguo-desktop` 的 **Web 专用入口分支**（`lib/main_web.dart` +
-`web/hls_bridge.js`），桌面原有 `.dart` 一个字未改，media_kit/libmpv 行为完全不受影响。
+`lib/features/web_player/` + `web/hls_bridge.js`），桌面原有 `.dart` 一个字未改，
+media_kit/libmpv 行为完全不受影响。播放桥另提供 `dcSetRate` / `dcToggleFullscreen` /
+`dcPlayerState`，供播放页的倍速、全屏与状态读取使用。
 `hls_bridge.js` 中 **HLS 一律优先交给 hls.js**（只有 `Hls.isSupported()` 为 false 的
 Safari 原生 HLS 或加载失败才走原生）——不能用 `canPlayType` 判断，Chrome 会返回误导性的 `"maybe"`。
 
