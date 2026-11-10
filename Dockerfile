@@ -8,11 +8,16 @@
 
 FROM nginx:alpine
 
-# 移除默认站点配置，改用自定义 SPA 配置
-RUN rm -f /etc/nginx/conf.d/default.conf
+# 可选：网关同源反代目标（设置页填「/」时，/api/* 由此转发）。
+# 默认值指向容器内不存在的端口，未配置时 /api/* 返回 502，前端会明确提示连接失败。
+ENV GATEWAY_URL=http://127.0.0.1:8787
 
-# 自定义配置 + Flutter Web 产物（含预置的 hls.min.js）
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# 移除默认站点配置；官方镜像启动时会把 /etc/nginx/templates/*.template
+# 经 envsubst 渲染到 /etc/nginx/conf.d/default.conf（只替换真实存在的环境变量）。
+RUN rm -f /etc/nginx/conf.d/default.conf
+COPY nginx.conf.template /etc/nginx/templates/default.conf.template
+
+# Flutter Web 产物（已由 prepare_web_output.py 离线化：本地字体 / 无 SW / 精简渲染器）
 COPY build/web /usr/share/nginx/html
 
 EXPOSE 80

@@ -8,4 +8,10 @@ services:
     ports:
       - "8080:80"
     restart: unless-stopped
+    environment:
+      # 可选：网关同源反代。启用后把设置页的「网关地址」填成 / ，
+      # Web 端请求同源 /api/*，由 nginx 转发到下面的地址。
+      # 这样 HTTPS 页面不必直连 HTTP 网关（避免混合内容拦截），也无需依赖 CORS。
+      # 不使用网关时删掉本段即可（默认 /api/* 返回 502，不影响演示片库）。
+      GATEWAY_URL: "http://192.168.1.10:8787"
     # 如需自定义域名 / HTTPS，可在本服务前加一层反代（Nginx Proxy Manager / Caddy）

@@ -9,7 +9,8 @@
 #     磁力下载（dart:ffi）等桌面模块不进入 Web 编译图。
 #   * Q2：构建前在【临时副本】生成移除桌面专属依赖的 pubspec；失败自动回退原始 pubspec。
 #     源码仓 pubspec.yaml 永不落盘改动。
-#   * 本脚本只构建并打包，不修改任何源码。hls.min.js 预置到产物根。
+#   * 本脚本只构建并打包，不修改任何源码。hls.min.js / 离线演示流由源码仓
+#     apps/flutter/web/ 随产物带出；产物再由 prepare_web_output.py 收口。
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -57,8 +58,9 @@ python3 "$ROOT/scripts/prepare_web_pubspec.py" pubspec.original.yaml pubspec.yam
 
 build_web() {
   flutter pub get
-  # --no-web-resources-cdn：canvaskit / 字体等改为产物内本地资源。
+  # --no-web-resources-cdn：canvaskit 改为产物内本地资源。
   # 内网 / NAS 离线部署无外网，默认走 gstatic CDN 会白屏（实测 2026-11-10）。
+  # 注意：该参数不覆盖字体回退，字体由 prepare_web_output.py 本地化处理。
   flutter build web --release -t "$ENTRY" --no-wasm-dry-run --no-web-resources-cdn
 }
 
@@ -69,16 +71,15 @@ if ! build_web; then
   build_web
 fi
 
-echo "▶ 复制产物到 ${OUT}，并预置 hls.js..."
+echo "▶ 复制产物到 ${OUT}，并执行离线部署后处理..."
 rm -rf "$ROOT/build"
 mkdir -p "$ROOT/build"
 cp -R "$WORK/build/web" "$OUT"
-# 与 CI 一致：优先复用本仓缓存的 hls.js，否则从 CDN 拉取
-if [ -f "$ROOT/vendor/hls.min.js" ]; then
-  cp "$ROOT/vendor/hls.min.js" "$OUT/hls.min.js"
-else
-  curl -fsSL --max-time 60 https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js -o "$OUT/hls.min.js"
-fi
+# 产物后处理（与 CI 完全同一脚本）：本地化字体回退、注销 Service Worker、
+# 精简 dart2js 用不到的 skwasm/symbols、校验 hls.min.js。全程不联网。
+# hls.min.js 与离线演示流由源码仓 apps/flutter/web/ 随构建产物带出；
+# vendor/ 提供兜底副本，任何情况下都不会回退 CDN。
+python3 "$ROOT/scripts/prepare_web_output.py" "$OUT" "$ROOT"
 
 echo "▶ 构建 nginx 镜像 dramacube-web:local..."
 cd "$ROOT"

@@ -1,0 +1,83 @@
+server {
+    listen 80;
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # SPA 回退：未命中静态资源时交给 index.html（客户端路由）
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # 网关同源反代（可选）。GATEWAY_URL 由 docker run -e / compose environment 注入，
+    # 官方 nginx 镜像启动时会用 envsubst 把本模板渲染成 default.conf。
+    # 用途：页面走 HTTPS 时，直连 http://<网关IP>:8787 会被浏览器按混合内容拦截；
+    # 设置页把网关地址填成「/」，Web 端请求同源 /api/*，由此处转发，也免掉 CORS 依赖。
+    # 未配置时默认指向容器内 127.0.0.1:8787（返回 502，前端会明确提示连接失败）。
+    location ^~ /api/ {
+        # 用变量 + resolver 做运行时解析：若直接写 `proxy_pass ${GATEWAY_URL};`，
+        # nginx 启动时就会解析主机名，网关容器尚未就绪 / DNS 未生效时会
+        # [emerg] host not found in upstream 直接退出（实测 2026-11-10 踩过）。
+        # 127.0.0.11 是 Docker 的嵌入式 DNS；填 IP 时不触发解析。
+        resolver 127.0.0.11 valid=30s ipv6=off;
+        resolver_timeout 2s;
+        set $dc_gateway "${GATEWAY_URL}";
+        proxy_pass $dc_gateway;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 60s;
+        add_header Cache-Control "no-store" always;
+    }
+
+    # Flutter Web 引擎字体回退（fontFallbackBaseUrl 已指向此处）。
+    # 101 个 Noto Sans SC 分片 + Roboto 已随镜像内置；清单外语言（日文/韩文/emoji 等）
+    # 的请求落到通用分片，避免 404 与任何 fonts.gstatic.com 外链。
+    location ^~ /fonts/fallback/ {
+        types { font/woff2 woff2; }
+        try_files $uri /fonts/fallback/fallback.woff2 =404;
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+        add_header Access-Control-Allow-Origin "*";
+    }
+
+    # 入口 / 无内容 hash 的文件：必须每次校验（ETag / 304）。
+    # Flutter Web 的 main.dart.js、flutter_bootstrap.js、service worker 与
+    # 我们的 hls_bridge.js 都不带内容 hash，若设 immutable 长缓存，
+    # 版本升级后浏览器会一直拿旧文件（实测 2026-11-10 踩过：修了播放桥但页面仍加载旧版）。
+    location ~* ^/(index\.html|flutter_bootstrap\.js|flutter\.js|main\.dart\.js|hls_bridge\.js|hls\.min\.js|flutter_service_worker\.js|version\.json|manifest\.json)$ {
+        add_header Cache-Control "no-cache, must-revalidate" always;
+        try_files $uri =404;
+    }
+
+    # 带 hash 的构建产物（assets/ 字体图片、canvaskit 等）长缓存、不可变
+    location ~* \.(js|mjs|css|json|png|jpg|jpeg|gif|svg|ico|woff2?|ttf|eot|map|wasm)$ {
+        expires 365d;
+        add_header Cache-Control "public, immutable";
+        try_files $uri =404;
+    }
+
+    # HLS 直播/点播切片不缓存，保证实时性
+    location ~* \.(m3u8|ts|aac)$ {
+        add_header Cache-Control "no-cache";
+        add_header Access-Control-Allow-Origin "*";
+    }
+
+    # gzip 压缩（文本类资源显著减小首屏体积）
+    gzip on;
+    gzip_comp_level 6;
+    gzip_min_length 1024;
+    gzip_types text/plain text/css application/javascript application/json image/svg+xml application/xml+rss;
+    gzip_proxied any;
+
+    # 基础安全头
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+    # 放开请求体上限（封面/离线包上传等）
+    client_max_body_size 0;
+}

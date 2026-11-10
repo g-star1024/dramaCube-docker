@@ -1,6 +1,7 @@
 # 剧立方 DramaCube — Flutter Web 部署（路线 B）
 
-> 完整 Web 应用：原生浏览器体验，nginx 静态托管 Flutter Web 产物，镜像实测 138MB。
+> 完整 Web 应用：原生浏览器体验，nginx 静态托管 Flutter Web 产物，镜像实测 **126MB**。
+> 纯内网可跑：字体、hls.js、演示视频流全部随镜像内置，页面 **0 外部请求**。
 > 替代已废弃的路线 A（noVNC 桌面镜像，见 [DramaCube-releases](https://github.com/g-star1024/DramaCube-releases)）。
 
 本仓库**只是一个部署壳**：不含任何应用源码，仅负责把 Flutter Web 构建产物用 nginx 托管成镜像。
@@ -45,15 +46,38 @@ docker run -d --name dramacube-web -p 8080:80 \
 （分集 / 倍速 / 全屏 / 收藏 / 历史记录）。收藏、历史、搜索词与网关地址存在浏览器
 `localStorage`，无需登录、无后端。NAS 本地资源库、磁力下载、本地备份等桌面能力不在范围内。
 
-**开箱即有内容**：未配网关时展示内置演示片库（纯本地静态数据 + 本地渐变封面，不依赖外链图片；
-播放地址是公开测试流，真正播放需外网；设置页可一键关闭）。配置网关容器地址后自动切换为真实站点内容，
-网关已带 `Access-Control-Allow-Origin: *`。Web 版自身不启动本地网关（浏览器不能监听端口）。
+**开箱即有内容**：未配网关时展示内置演示片库（纯本地静态数据 + 本地渐变封面，不依赖外链图片）。
+**首条「离线演示片」是随镜像内置的 12 秒 HLS / MP4 测试流，纯内网就能真播放**，
+可用来验证 hls.js 接管、分片加载、倍速与全屏；其余条目为公开测试流，真正播放需外网。
+设置页可一键关闭演示模式（关闭后首页与片库都会清空）。配置网关后自动切换为真实站点内容；
+网关直连需其带 `Access-Control-Allow-Origin: *`。Web 版自身不启动本地网关（浏览器不能监听端口）。
 
-**离线 / 内网**：构建带 `--no-web-resources-cdn`，canvaskit 走产物内本地资源（`/canvaskit/...`），
-`hls.min.js` 也预置在产物内，无需外网即可渲染页面并播 HLS。
-**已知项**：Flutter Web 引擎渲染中文时仍会尝试从 `fonts.gstatic.com` 下载 Roboto / Noto Sans SC
-回退字体（引擎 `fontFallbackBaseUrl` 默认值），纯内网下该请求失败会在控制台产生警告，
-但文字回退到系统字体、功能不受影响。演示片库里的公开测试流本身需要外网才能播放。
+**离线 / 内网（本版已完全收口）**：
+
+| 资源 | 处理方式 |
+|------|----------|
+| canvaskit | `--no-web-resources-cdn` → 产物内 `/canvaskit/...` |
+| 中文字体 | 引擎 `fontFallbackBaseUrl` 指向 `fonts/fallback/`，103 个 woff2（Noto Sans SC 分片 + Roboto）随镜像内置（2.4MB）；清单外语言由 nginx 回落到通用分片，不产生 404 也不外联 |
+| hls.js | `hls.min.js`（Apache-2.0）随源码仓 `web/` 进入产物，`hls_bridge.js` 加载失败时只回退原生播放，**不再回退 CDN** |
+| 演示视频 | `demo/stream.m3u8` + 6 个 `.ts` 分片 + `demo/clip.mp4`，同源相对路径，nginx 对 HLS 不缓存 |
+| Service Worker | 产物不再注册 SW；`index.html` 会主动注销旧版本残留的注册并清缓存，避免镜像升级后浏览器一直拿旧 `main.dart.js` |
+
+实测：页面加载的字体请求全部命中本地 `200`，`fonts.gstatic.com` / `cdn.jsdelivr.net` /
+`storage.googleapis.com` 等外部域名 **0 请求**，控制台 0 错误 0 警告。
+
+**网关同源反代（可选，解决 HTTPS 混合内容）**：若页面走 HTTPS，直连 `http://<网关IP>:8787`
+会被浏览器拦截。此时启动镜像时指定网关地址，并在设置页把「网关地址」填成 `/`：
+
+```bash
+docker run -d --name dramacube-web -p 8080:80 \
+  -e GATEWAY_URL=http://192.168.1.10:8787 \
+  ghcr.io/g-star1024/dramacube-docker:latest
+```
+
+Web 端请求同源 `/api/*`，由容器内 nginx 转发（路径原样保留，已实测），
+因此不依赖网关 CORS、也不受混合内容限制。`GATEWAY_URL` 用变量 + `resolver` 在**运行时**解析，
+网关容器尚未启动时 Web 容器仍可正常打开（仅 `/api/*` 返回 502，前端明确提示连接失败），
+不会因 `[emerg] host not found in upstream` 直接退出。推荐填 IP 或 compose 服务名。
 
 ### 界面预览（真实浏览器渲染）
 
@@ -82,7 +106,12 @@ docker run -d --name dramacube-web -p 8080:80 \
 1. 用 Web 专用入口 `lib/main_web.dart`（不 import 桌面 `app/router.dart`，磁力下载的 `dart:ffi` 不进编译图）
 2. Q2：`scripts/prepare_web_pubspec.py` 临时移除 21 个桌面专属依赖；失败自动回退原始 pubspec
 3. `flutter build web --release -t lib/main_web.dart --no-wasm-dry-run --no-web-resources-cdn`
-4. 复制产物 + 预置 `hls.min.js` → `docker build`
+4. 复制产物 → `scripts/prepare_web_output.py` 离线化收口（本地字体 / 注销 SW / 精简
+   dart2js 用不到的 skwasm 与 symbols / 校验 hls.min.js）→ `docker build`
+
+`prepare_web_output.py` 与 CI 调用的是**同一个脚本**，且离线资源全部来自本仓 `vendor/`
+（`font-fallback.tar.gz` + `hls.min.js` 兜底），构建过程不访问任何 CDN。
+如需在升级 Flutter SDK 后重建字体包，运行 `python3 scripts/fetch_font_fallbacks.py`。
 
 本机 Flutter SDK 未加入 PATH 时会自动探测 `~/development/flutter/bin` 等常见位置。
 
@@ -93,8 +122,7 @@ docker run -d --name dramacube-web -p 8080:80 \
 触发：**Actions → build-web-image → Run workflow**，可填：
 
 - `version`：版本号（如 `2.7.83`），用于镜像 `:vX.Y.Z`；留空只推 `:latest`
-- `source_ref`：私有源码仓的 ref（默认 `feat/web-compat`，即 Web 兼容改造分支；
-  若该分支已合回 `main`，改成 `main`）
+- `source_ref`：私有源码仓的 ref（默认 `feat/web-compat`；该分支含 Web 专用入口，尚未合回 `main`，合回后改为 `main`）
 
 ### 必须配置的 Secret
 
@@ -103,6 +131,7 @@ CI 需要读取私有源码仓 `hongguo-desktop`，请在本仓 **Settings → S
 - `SOURCE_TOKEN`：一个具有 `repo`（读取私有仓）权限的 GitHub Personal Access Token
 
 （公共仓 Actions 免费；用 PAT checkout 私有源码，构建完产物不入库。）
+未配置时 CI 会在第一步直接给出 `::error::` 明确指引，不会出现含义模糊的 404。
 
 ---
 
@@ -134,5 +163,5 @@ Safari 原生 HLS 或加载失败才走原生）——不能用 `canPlayType` �
 ## 镜像体积
 
 基底 `nginx:alpine` ≈ 40MB，叠加 Flutter Web 产物（canvaskit / main.dart.js / assets / hls.js）
-后**实测 138MB**，远低于已废弃的路线 A noVNC 桌面镜像。入口文件 `no-cache`、
+后**实测 126MB**，远低于已废弃的路线 A noVNC 桌面镜像。入口文件 `no-cache`、
 带 hash 资源 `immutable`，保证升级后浏览器不会拿到旧文件。

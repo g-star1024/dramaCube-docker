@@ -6,3 +6,8 @@ source/
 .dockerignore
 docker-compose.example.yml
 build.sh
+# Dockerfile 只 COPY nginx.conf.template 与 build/web；其余资源不进构建上下文
+scripts/
+vendor/
+docs/
+nginx.conf

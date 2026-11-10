@@ -14,7 +14,7 @@ on:
         required: false
         default: ""
       source_ref:
-        description: "私有源码仓 hongguo-desktop 的 ref（分支名或 commit），默认 feat/web-compat"
+        description: "私有源码仓 hongguo-desktop 的 ref（分支名或 commit），Web 代码当前在 feat/web-compat 分支"
         required: false
         default: "feat/web-compat"
   push:
@@ -36,6 +36,16 @@ jobs:
     steps:
       - name: Checkout 本仓（Dockerfile / nginx.conf / 脚本）
         uses: actions/checkout@v4
+
+      - name: 检查 SOURCE_TOKEN 已配置
+        env:
+          SOURCE_TOKEN: ${{ secrets.SOURCE_TOKEN }}
+        run: |
+          if [ -z "$SOURCE_TOKEN" ]; then
+            echo "::error::未配置 SOURCE_TOKEN，无法 checkout 私有源码仓 hongguo-desktop。请在本仓 Settings → Secrets → Actions 添加具有 repo 读权限的 PAT，步骤见 docs/SOURCE_TOKEN.md"
+            exit 1
+          fi
+          echo "✓ SOURCE_TOKEN 已配置"
 
       - name: Checkout 私有源码仓 hongguo-desktop（仅构建 web 产物，不修改）
         uses: actions/checkout@v4
@@ -64,8 +74,9 @@ jobs:
         working-directory: source/apps/flutter
         run: |
           set -euo pipefail
-          # --no-web-resources-cdn：canvaskit / 字体走产物内本地资源，
+          # --no-web-resources-cdn：canvaskit 走产物内本地资源，
           # 内网 / NAS 离线部署无外网，默认 gstatic CDN 会白屏。
+          # 字体回退由后面的 prepare_web_output.py 本地化。
           if ! (flutter pub get && flutter build web --release -t "$WEB_ENTRY" \
                 --no-wasm-dry-run --no-web-resources-cdn); then
             echo "⚠️ Web 专用 pubspec 构建失败，回退到原始 pubspec 再试一次"
@@ -75,14 +86,16 @@ jobs:
               --no-wasm-dry-run --no-web-resources-cdn
           fi
 
-      - name: 准备 Docker 构建上下文（复制 web 产物 + 预置 hls.js）
+      - name: 准备 Docker 构建上下文（复制 web 产物 + 离线化后处理）
         run: |
           set -euo pipefail
           mkdir -p build
           rm -rf build/web
           cp -R source/apps/flutter/build/web build/web
-          # 预置 hls.js：供 Web 播放层按需加载（原生端不受影响）
-          curl -fsSL https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js -o build/web/hls.min.js
+          # 与本地 build.sh 完全一致：本地字体回退 / 注销 Service Worker /
+          # 精简 skwasm + symbols / 校验 hls.min.js。资源全部来自本仓 vendor/，
+          # 不访问任何 CDN，构建过程可完全离线复现。
+          python3 scripts/prepare_web_output.py build/web "$GITHUB_WORKSPACE"
 
       - name: 登录 GHCR
         uses: docker/login-action@v3
