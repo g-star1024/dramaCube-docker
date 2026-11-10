@@ -1,9 +1,10 @@
 name: build-web-image
 
 # 剧立方 DramaCube — Flutter Web 镜像构建（路线 B）
-# 流程：checkout 本仓（Dockerfile/nginx.conf）→ checkout 私有源码仓 hongguo-desktop
-#       → Flutter 构建 web 产物 → 预置 hls.js → docker build → 推送 GHCR。
-# 本工作流只读源码仓、不改源码；产物仅在本仓临时构建上下文内使用。
+# 流程：checkout 本仓（Dockerfile/nginx.conf/脚本）→ checkout 私有源码仓 hongguo-desktop
+#       → Q2 生成 Web 专用 pubspec（移除桌面依赖）→ flutter build web（Web 专用入口）
+#       → 预置 hls.js → docker build → 推送 GHCR。
+# 本工作流只读源码仓、不改源码仓；产物仅在本仓临时构建上下文内使用。
 
 on:
   workflow_dispatch:
@@ -13,9 +14,9 @@ on:
         required: false
         default: ""
       source_ref:
-        description: "私有源码仓 hongguo-desktop 的 ref（分支名或 commit），默认 main"
+        description: "私有源码仓 hongguo-desktop 的 ref（分支名或 commit），默认 feat/web-compat"
         required: false
-        default: "main"
+        default: "feat/web-compat"
   push:
     branches: [main]
 
@@ -25,13 +26,15 @@ permissions:
 
 env:
   IMAGE: ghcr.io/g-star1024/dramacube-docker
+  # Web 专用入口：不 import 桌面 app/router，磁力下载(dart:ffi)等不进入编译图
+  WEB_ENTRY: lib/main_web.dart
 
 jobs:
   build-web:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - name: Checkout 本仓（Dockerfile / nginx.conf）
+      - name: Checkout 本仓（Dockerfile / nginx.conf / 脚本）
         uses: actions/checkout@v4
 
       - name: Checkout 私有源码仓 hongguo-desktop（仅构建 web 产物，不修改）
@@ -39,7 +42,7 @@ jobs:
         with:
           repository: g-star1024/hongguo-desktop
           token: ${{ secrets.SOURCE_TOKEN }}
-          ref: ${{ github.event.inputs.source_ref || 'main' }}
+          ref: ${{ github.event.inputs.source_ref || 'feat/web-compat' }}
           path: source
           persist-credentials: false
 
@@ -49,21 +52,36 @@ jobs:
           channel: "stable"
           cache: true
 
-      - name: Flutter 依赖
+      - name: Q2 生成 Web 专用 pubspec（移除桌面专属依赖）
         working-directory: source/apps/flutter
-        run: flutter pub get
+        run: |
+          set -euo pipefail
+          cp pubspec.yaml pubspec.original.yaml
+          python3 "$GITHUB_WORKSPACE/scripts/prepare_web_pubspec.py" \
+            pubspec.original.yaml pubspec.yaml
 
-      - name: 构建 Web（release）
+      - name: Flutter 依赖 + 构建 Web（失败则回退原始 pubspec）
         working-directory: source/apps/flutter
-        run: flutter build web --release
+        run: |
+          set -euo pipefail
+          # --no-web-resources-cdn：canvaskit / 字体走产物内本地资源，
+          # 内网 / NAS 离线部署无外网，默认 gstatic CDN 会白屏。
+          if ! (flutter pub get && flutter build web --release -t "$WEB_ENTRY" \
+                --no-wasm-dry-run --no-web-resources-cdn); then
+            echo "⚠️ Web 专用 pubspec 构建失败，回退到原始 pubspec 再试一次"
+            cp pubspec.original.yaml pubspec.yaml
+            flutter pub get
+            flutter build web --release -t "$WEB_ENTRY" \
+              --no-wasm-dry-run --no-web-resources-cdn
+          fi
 
       - name: 准备 Docker 构建上下文（复制 web 产物 + 预置 hls.js）
         run: |
           set -euo pipefail
           mkdir -p build
           rm -rf build/web
-          cp -r source/apps/flutter/build/web build/web
-          # 预置 hls.js：供 web 播放层按需加载（原生端不受影响）
+          cp -R source/apps/flutter/build/web build/web
+          # 预置 hls.js：供 Web 播放层按需加载（原生端不受影响）
           curl -fsSL https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js -o build/web/hls.min.js
 
       - name: 登录 GHCR
