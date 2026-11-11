@@ -11,3 +11,5 @@ scripts/
 vendor/
 docs/
 nginx.conf
+# Next.js 前端源码（web/）不进部署壳构建上下文；如未来为其单独出镜像，再按需放开
+web/
