@@ -162,6 +162,36 @@ def trim_canvaskit(out: Path) -> None:
     print(f"  ✓ 精简 canvaskit：删除 {removed} 个 skwasm/symbols 文件，释放 {human(freed)}")
 
 
+def align_chromium_variant(out: Path) -> None:
+    """chromium 专用变体曾在构建产物中出现 js/wasm 混版：wasm 要求的导入函数
+    在 glue 中不存在（LinkError: import "a"/"sd"），Chromium 浏览器每帧抛
+    "flutterCanvasKit.PathBuilder is not a constructor"，页面完全不可用
+    （2026-11-11 实测）。
+
+    root 变体与 chromium 变体 API 等价、可在 Chromium 中正常工作（本构建已
+    真机验证：root 干净初始化 175 个 API 且 PathBuilder 可用），直接用 root
+    覆盖 chromium 下两个文件，保证 js/wasm 永远同源。幂等：一致时跳过。
+    """
+    import hashlib
+
+    ck = out / "canvaskit"
+    ch = ck / "chromium"
+    if not ch.is_dir():
+        return
+    for name in ("canvaskit.js", "canvaskit.wasm"):
+        src = ck / name
+        dst = ch / name
+        if not src.is_file():
+            raise SystemExit(f"✗ 缺少 {src}，无法对齐 chromium 变体")
+        if dst.is_file() and (
+            hashlib.sha256(dst.read_bytes()).hexdigest()
+            == hashlib.sha256(src.read_bytes()).hexdigest()
+        ):
+            continue
+        shutil.copyfile(src, dst)
+        print(f"  ✓ chromium 变体已用 root 对齐：{name}")
+
+
 def main() -> None:
     if len(sys.argv) < 2:
         raise SystemExit("用法：python3 scripts/prepare_web_output.py <build/web> [repo_root]")
@@ -181,6 +211,7 @@ def main() -> None:
     install_fonts(out, root)
     patch_bootstrap(out)
     trim_canvaskit(out)
+    align_chromium_variant(out)
     after = sizeof(out)
     print(f"✅ 产物就绪：{human(before)} → {human(after)}（含本地字体，0 外部依赖）")
 

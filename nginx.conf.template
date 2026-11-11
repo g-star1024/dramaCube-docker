@@ -54,7 +54,16 @@ server {
         try_files $uri =404;
     }
 
-    # 带 hash 的构建产物（assets/ 字体图片、canvaskit 等）长缓存、不可变
+    # canvaskit 渲染器（无内容 hash 的文件名）：必须每次校验（ETag / 304）。
+    # 若设 immutable 长缓存，渲染器修复/升级后浏览器会一直拿旧文件。
+    # 2026-11-11 实测踩坑：chromium 变体混版 + immutable 一年缓存，
+    # 修复上线后浏览器仍加载损坏的旧 wasm，用户需手动强刷一次才能恢复。
+    location ^~ /canvaskit/ {
+        add_header Cache-Control "no-cache, must-revalidate" always;
+        try_files $uri =404;
+    }
+
+    # 带 hash 的构建产物（assets/ 字体图片等）长缓存、不可变
     location ~* \.(js|mjs|css|json|png|jpg|jpeg|gif|svg|ico|woff2?|ttf|eot|map|wasm)$ {
         expires 365d;
         add_header Cache-Control "public, immutable";
