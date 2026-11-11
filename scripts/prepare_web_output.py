@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import shutil
 import sys
@@ -192,6 +193,108 @@ def align_chromium_variant(out: Path) -> None:
         print(f"  ✓ chromium 变体已用 root 对齐：{name}")
 
 
+RESET_HTML = """<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>剧立方 · 本地缓存修复</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+         background:#14121a; color:#ece7f2; font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; }
+  .card { width:min(420px, 90vw); background:#1e1a28; border:1px solid #342d44; border-radius:16px; padding:28px; }
+  h1 { font-size:18px; margin:0 0 10px; }
+  p { font-size:13px; color:#b3abc4; margin:6px 0; }
+  progress { width:100%; height:6px; margin-top:14px; accent-color:#e79ab5; }
+  .ok { color:#7fd8a8; }
+  code { background:#2a2438; padding:1px 5px; border-radius:4px; font-size:12px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>正在修复本地缓存…</h1>
+  <p id="status">注销旧 Service Worker…</p>
+  <progress id="bar" max="100" value="0"></progress>
+  <p id="done" class="ok" hidden>✅ 修复完成，正在返回首页…</p>
+  <p id="fail" hidden style="color:#e79ab5;">修复未完成，请手动操作：DevTools → Application →
+    Storage → Clear site data，然后刷新。</p>
+  <p style="margin-top:14px;color:#7a7390;">本页面用于一次性清除旧部署残留的
+    Service Worker 与被长期缓存的渲染器/字体文件（乱码、卡死时使用）。</p>
+</div>
+<script>
+(async () => {
+  const FLAG = 'dcResetPhase2';
+  const st = document.getElementById('status');
+  const bar = document.getElementById('bar');
+  try {
+    if (!sessionStorage.getItem(FLAG)) {
+      // 阶段一：注销全部 SW + 清空 CacheStorage，然后重载使页面脱离 SW 控制
+      if ('serviceWorker' in navigator) {
+        const rs = await navigator.serviceWorker.getRegistrations();
+        for (const r of rs) { try { await r.unregister(); } catch (e) {} }
+      }
+      try { const ks = await caches.keys(); for (const k of ks) { await caches.delete(k); } } catch (e) {}
+      sessionStorage.setItem(FLAG, '1');
+      location.reload();
+      return;
+    }
+    // 阶段二：此时已无 SW 控制，用 fetch(reload) 逐个强制刷新被钉死的 HTTP 缓存条目
+    st.textContent = '强制刷新渲染器与字体缓存…';
+    const core = [
+      '/', '/index.html', '/flutter_bootstrap.js', '/flutter.js', '/main.dart.js',
+      '/hls_bridge.js', '/hls.min.js',
+      '/canvaskit/canvaskit.js', '/canvaskit/canvaskit.wasm',
+      '/canvaskit/chromium/canvaskit.js', '/canvaskit/chromium/canvaskit.wasm'
+    ];
+    let list = core.slice();
+    try {
+      const m = await fetch('/reset-manifest.json', { cache: 'reload' }).then(r => r.json());
+      if (Array.isArray(m.fonts)) list = list.concat(m.fonts);
+    } catch (e) { /* 清单缺失时仍刷核心资源 */ }
+    let done = 0;
+    const CONC = 8;
+    async function worker() {
+      while (done < list.length) {
+        const url = list[done++];
+        try { await fetch(url, { cache: 'reload' }); } catch (e) {}
+        bar.value = Math.round(100 * done / list.length);
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(CONC, list.length) }, worker));
+    st.textContent = '完成';
+    document.getElementById('done').hidden = false;
+    sessionStorage.removeItem(FLAG);
+    setTimeout(() => { location.href = '/'; }, 1200);
+  } catch (e) {
+    document.getElementById('fail').hidden = false;
+  }
+})();
+</script>
+</body>
+</html>
+"""
+
+
+def write_reset_assets(out: Path) -> None:
+    """生成 /reset.html 自愈页 + /reset-manifest.json 字体清单。
+
+    背景：历史上 nginx 曾对 canvaskit 设 365d immutable，且早期部署注册过
+    Service Worker；这类浏览器旧状态会让新版 index.html（含 SW 注销脚本）
+    永远加载不到（cache-first 死结），表现为字体豆腐块 + 请求挂死。
+    reset.html 两阶段自愈：先注销 SW/清 CacheStorage 并重载，脱离 SW 控制后
+    再用 fetch(reload) 强刷被钉死的 HTTP 缓存条目，最后回首页。幂等，仅手动访问触发。
+    """
+    fonts = sorted(
+        "/" + str(p.relative_to(out)).replace("\\\\", "/")
+        for p in (out / FONT_BASE).rglob("*.woff2")
+    )
+    manifest = {"fonts": fonts, "count": len(fonts)}
+    (out / "reset-manifest.json").write_text(json.dumps(manifest, ensure_ascii=False))
+    (out / "reset.html").write_text(RESET_HTML, encoding="utf-8")
+    print(f"  ✓ 生成自愈页 reset.html + 字体清单（{len(fonts)} 个 woff2）")
+
+
 def main() -> None:
     if len(sys.argv) < 2:
         raise SystemExit("用法：python3 scripts/prepare_web_output.py <build/web> [repo_root]")
@@ -212,6 +315,7 @@ def main() -> None:
     patch_bootstrap(out)
     trim_canvaskit(out)
     align_chromium_variant(out)
+    write_reset_assets(out)
     after = sizeof(out)
     print(f"✅ 产物就绪：{human(before)} → {human(after)}（含本地字体，0 外部依赖）")
 
