@@ -21,7 +21,7 @@ on:
     branches: [main]
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 env:
@@ -104,11 +104,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 构建并推送镜像
+      - name: 构建 Docker 镜像（日志落盘）
         run: |
           set -euo pipefail
-          docker build -t "$IMAGE:latest" .
-          docker push "$IMAGE:latest"
+          docker build --progress=plain -t "$IMAGE:latest" . 2>&1 | tee /tmp/docker-build.log
+
+      - name: 推送镜像到 GHCR（日志落盘）
+        run: |
+          set -euo pipefail
+          docker push "$IMAGE:latest" 2>&1 | tee /tmp/docker-push.log
           TAG="${{ github.event.inputs.version }}"
           if [ -n "$TAG" ]; then
             docker tag "$IMAGE:latest" "$IMAGE:v$TAG"
@@ -117,3 +121,26 @@ jobs:
           else
             echo "已推送 $IMAGE:latest（未提供 version，跳过版本 tag）"
           fi
+
+      - name: 失败时输出日志尾部并落到 ci-logs-nas 分支
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "::group::docker build 日志尾部"
+          tail -100 /tmp/docker-build.log 2>/dev/null || true
+          echo "::endgroup::"
+          echo "::group::docker push 日志尾部"
+          tail -100 /tmp/docker-push.log 2>/dev/null || true
+          echo "::endgroup::"
+          D=$(mktemp -d)
+          cd "$D"
+          git init -q
+          git config user.email "ci-logs@users.noreply.github.com"
+          git config user.name "ci-logs"
+          cp /tmp/docker-build.log /tmp/docker-push.log . 2>/dev/null || true
+          git add -A
+          git commit -qm "CI logs: run ${GITHUB_RUN_ID} (${GITHUB_SHA})"
+          git branch -M ci-logs-nas
+          git push --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" ci-logs-nas
+          echo "日志已推送到 ci-logs-nas 分支（可匿名读取）"
