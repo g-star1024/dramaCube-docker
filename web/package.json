@@ -1,0 +1,28 @@
+{
+  "name": "dramaCube-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DramaCube 独立 Web 前端（Next.js 14）。只读复用 DramaCube 网关与离线演示流，绝不修改 Flutter 源码。",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "artplayer": "^5.2.3",
+    "hls.js": "^1.5.17",
+    "next": "14.2.35",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.10",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.47",
+    "tailwindcss": "^3.4.13",
+    "typescript": "^5.5.3"
+  }
+}

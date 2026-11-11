@@ -1,0 +1,67 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background-color: #0f0d0c;
+  color: #f5efe9;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* 细滚动条（暗色） */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #2e2724 transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: #2e2724;
+  border-radius: 8px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: #3a322d;
+}
+
+@layer components {
+  .card {
+    @apply rounded-xl2 bg-bg-card border border-line;
+  }
+  .chip {
+    @apply inline-flex items-center rounded-full px-3 py-1 text-sm border border-line bg-bg-soft text-ink-soft;
+  }
+  .chip-active {
+    @apply bg-accent text-white border-accent;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors;
+  }
+  .btn-accent {
+    @apply bg-accent text-white hover:bg-accent-soft;
+  }
+  .btn-ghost {
+    @apply bg-bg-soft text-ink-soft hover:bg-bg-hover border border-line;
+  }
+  .skeleton {
+    @apply animate-pulse bg-bg-hover rounded-lg;
+  }
+}
+
+/* ArtPlayer 容器保证占满父级 */
+.artplayer-app,
+.art-video-player {
+  width: 100% !important;
+  height: 100% !important;
+}

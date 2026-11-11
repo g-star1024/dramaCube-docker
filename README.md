@@ -4,7 +4,8 @@
 > 纯内网可跑：字体、hls.js、演示视频流全部随镜像内置，页面 **0 外部请求**。
 > 替代已废弃的路线 A（noVNC 桌面镜像，见 [DramaCube-releases](https://github.com/g-star1024/DramaCube-releases)）。
 
-本仓库**只是一个部署壳**：不含任何应用源码，仅负责把 Flutter Web 构建产物用 nginx 托管成镜像。
+本仓库根目录**只是一个部署壳**：不含任何 Flutter 应用源码，仅负责把 Flutter Web 构建产物用 nginx 托管成镜像。
+**`web/` 子目录**是独立的新一代 Web 前端（Next.js 14，详见 [web/README.md](web/README.md)）——与 Flutter 源码零耦合，仅只读复用网关契约与离线演示流。
 
 ---
 
@@ -14,7 +15,7 @@
 |------|------|------|
 | `hongguo-desktop`（私有） | 私有源码仓 | **唯一的应用源码**：Mac 原生 + Android + Web 共用同一套 `lib/`。Web 只是 `flutter build web` 这个编译目标，不是独立代码库。播放层用 `kIsWeb`/条件导入隔离——Web 用 `video` + `hls.js`，桌面仍是 media_kit/libmpv，**互不影响** |
 | `DramaCube-releases`（公开） | 桌面发版 | 五平台桌面二进制发版 + 落地页（路线 A 已删除） |
-| **`dramaCube-docker`（本仓，公开）** | **Web 部署壳** | 仅 nginx 打包：`Dockerfile` / `nginx.conf` / CI（从 `hongguo-desktop` 拉 web 产物塞进 nginx）。**不持有、不修改源码** |
+| **`dramaCube-docker`（本仓，公开）** | **Web 部署壳 + 独立 Web 前端** | 根目录仅 nginx 打包：`Dockerfile` / `nginx.conf` / CI（从 `hongguo-desktop` 拉 web 产物塞进 nginx），**不持有、不修改 Flutter 源码**；`web/` 子目录为独立 Next.js Web 前端源码 |
 
 关键点：**Web 版与 Mac 原生版是同一套源码的两个编译目标**，所以不存在"三套代码互相冲突"。本仓只消费 `flutter build web` 的**产物**，从源头杜绝了分叉。
 
