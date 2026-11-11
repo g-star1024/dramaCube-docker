@@ -45,11 +45,27 @@ server {
         add_header Access-Control-Allow-Origin "*";
     }
 
+    # index.html 单独处理（2026-11-11）：
+    # ① 首访预置网关地址——网关配置存在浏览器 localStorage，隐私窗口/换浏览器/
+    #    清过存储的新会话里是空的，页面会一直「未连接网关」没数据。<head> 注入
+    #    种子脚本，仅当 key 不存在时写「/」（同源反代）；用户显式清空（存 ''）不覆盖。
+    # ② 禁用 304 校验器——sub_filter 输出与源文件 ETag/Last-Modified 不一致，
+    #    浏览器拿 304 旧缓存体会永远错过注入（2026-11-11 实测）。index.html 仅
+    #    2.6KB，全量返回代价可忽略；其余无 hash 文件仍走 ETag 304 省带宽。
+    location = /index.html {
+        add_header Cache-Control "no-cache, must-revalidate" always;
+        etag off;
+        if_modified_since off;
+        sub_filter '<head>' '<head><script>try{if(localStorage.getItem("dramacube.web.gateway")===null)localStorage.setItem("dramacube.web.gateway","/")}catch(e){}</script>';
+        sub_filter_once on;
+        sub_filter_types text/html;
+    }
+
     # 入口 / 无内容 hash 的文件：必须每次校验（ETag / 304）。
     # Flutter Web 的 main.dart.js、flutter_bootstrap.js、service worker 与
     # 我们的 hls_bridge.js 都不带内容 hash，若设 immutable 长缓存，
     # 版本升级后浏览器会一直拿旧文件（实测 2026-11-10 踩过：修了播放桥但页面仍加载旧版）。
-    location ~* ^/(index\.html|flutter_bootstrap\.js|flutter\.js|main\.dart\.js|hls_bridge\.js|hls\.min\.js|flutter_service_worker\.js|version\.json|manifest\.json)$ {
+    location ~* ^/(flutter_bootstrap\.js|flutter\.js|main\.dart\.js|hls_bridge\.js|hls\.min\.js|flutter_service_worker\.js|version\.json|manifest\.json)$ {
         add_header Cache-Control "no-cache, must-revalidate" always;
         try_files $uri =404;
     }
