@@ -14,9 +14,9 @@ on:
         required: false
         default: ""
       source_ref:
-        description: "私有源码仓 hongguo-desktop 的 ref（分支名或 commit），Web 代码当前在 feat/web-compat 分支"
+        description: "私有源码仓 hongguo-desktop 的 ref（分支名或 commit），Web 代码已合回 main"
         required: false
-        default: "feat/web-compat"
+        default: "main"
   push:
     branches: [main]
 
@@ -52,7 +52,7 @@ jobs:
         with:
           repository: g-star1024/hongguo-desktop
           token: ${{ secrets.SOURCE_TOKEN }}
-          ref: ${{ github.event.inputs.source_ref || 'feat/web-compat' }}
+          ref: ${{ github.event.inputs.source_ref || 'main' }}
           path: source
           persist-credentials: false
 
